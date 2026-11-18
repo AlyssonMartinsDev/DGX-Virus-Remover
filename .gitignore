@@ -1,0 +1,25 @@
+# Executável compilado: NÃO vai para o código-fonte.
+# Ele é gerado pelo GitHub Actions e publicado na página de Releases.
+*.exe
+*.pdb
+*.dll
+
+# Saídas de build e temporários
+/bin/
+/obj/
+/dist/
+*.tmp
+*.log
+
+# Relatórios e quarentenas que possam ser gerados em teste
+Relatorio_*.html
+Quarentena_*/
+_quarentena/
+
+# Windows / editores
+Thumbs.db
+desktop.ini
+.vs/
+.vscode/
+*.suo
+*.user

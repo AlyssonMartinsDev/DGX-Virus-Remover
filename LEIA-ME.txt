@@ -1,0 +1,126 @@
+DGX VIRUS REMOVER  (Windows 7/8/10/11, .NET Framework 4.8 — já vem no Windows)
+=================================================================================
+
+FAMÍLIAS TRATADAS
+   - TJprojMain / Mofksys (Worm:Win32/Mofksys)
+   - Synaptics V1 e V2 (falso "Synaptics Pointing Device Driver")
+   - Grenam (Worm:Win32/Grenam)
+   As assinaturas de Synaptics, Mofksys e Grenam vieram da engenharia reversa do
+   "Synaptics Killer v6" (Car-Tech Diagnostic). Ver "ORIGEM DAS REGRAS" abaixo.
+
+MODOS DE VARREDURA (caixa "Varredura")
+   - Rápida: sistema (locais do vírus, processos, registro, serviços, tarefas, inicialização,
+     Defender/hosts/proxy, pendrives) — sem varrer arquivos. Leva segundos.
+   - Completa: Rápida + todos os executáveis de Program Files, ProgramData, Users e Temp.
+   - Disco inteiro: Rápida + todos os executáveis de todos os discos.
+   - Pasta escolhida: só a pasta (ou pendrive) que você indicar. Use para testar ferramentas
+     baixadas antes de rodar.
+   Opções: "Inicialização e suspeitos", "Pendrives", "Perfis e Windows offline",
+   "Confirmar com o Defender" (os suspeitos passam também pelo motor do Windows Defender)
+   e "Vacinar após limpar".
+
+DETECÇÕES GENÉRICAS (pegam vírus sem assinatura conhecida)
+   - Executável SEM assinatura digital iniciando de AppData/Temp/ProgramData (Run, pasta
+     Inicializar, tarefas agendadas) — ladrões de senha, mineradores, acesso remoto.
+     Vem DESMARCADO (gravidade Média): confira antes de remover.
+   - Scripts (.vbs/.js/.hta/.ps1/.bat) na pasta Inicializar; PowerShell oculto/codificado na
+     inicialização ou em tarefas (vem marcado).
+   - Processo rodando de Temp/Lixeira sem assinatura.
+   - Windows Defender desligado por política (vem marcado) e exceções perigosas no Defender
+     (pasta de usuário, disco inteiro, extensão .exe…) — vem desmarcado.
+   - hosts bloqueando antivírus/Windows Update (só essas linhas são desativadas, com backup;
+     bloqueios de ativação de programas NÃO são mexidos).
+   - Proxy/PAC de internet ligado e AppInit_DLLs.
+   - Pendrive: vírus do atalho (atalhos falsos que rodam wscript/cmd, scripts e executáveis
+     escondidos) — os atalhos vão para a quarentena e as pastas escondidas voltam a aparecer.
+   - Bilhete do ransomware STOP/Djvu (_readme.txt): aviso com orientação.
+
+PERMITIDOS (botão "Permitidos" ou botão direito num item)
+   Arquivo, pasta inteira, conteúdo (SHA256) ou entrada de registro que você sabe que não é
+   vírus. Ficam em %ProgramData%\DGX Virus Remover\permitidos.txt e são ignorados em todas
+   as varreduras (o log mostra "Permitido (ignorado)").
+
+QUARENTENA (botão "Quarentena")
+   Lista tudo o que foi removido, de todas as limpezas: Restaurar, Restaurar e permitir,
+   Excluir definitivamente e Esvaziar o que tiver mais de 30 dias.
+
+PROTEÇÃO (botão "Proteção")
+   - Estado do Windows Defender e atualização das assinaturas.
+   - Vigiar pendrives: todo pendrive conectado é verificado automaticamente (com o programa aberto).
+   - Bloquear AutoRun/Reprodução Automática; mostrar extensões; mostrar arquivos ocultos.
+   - Rotina da máquina limpa (checklist).
+
+COMO USAR
+  1. Abra "DGX Virus Remover.exe" (pede administrador automaticamente).
+  2. Clique em "Escanear". NADA é alterado nesta etapa.
+  3. Confira a lista. A coluna "Tipo" mostra a família; "Infectado (recuperável)" quer
+     dizer que o programa original foi encontrado dentro do infectado.
+  4. Clique em "Remover selecionados".
+  5. Reinicie se o programa pedir e rode "Escanear" de novo para confirmar.
+
+O QUE ELE FAZ
+  Varredura (8-9 etapas, com % concluído / % que falta / tempo restante):
+   - Locais conhecidos: qualquer executável em \Windows\Resources\ e \Windows\System\
+     (o Windows não guarda programas ali), icsys.icn.exe nas pastas Temp e o Synaptics
+     falso em \ProgramData\Synaptics\ (o driver verdadeiro do touchpad fica em Program Files).
+   - Processos em execução rodando desses locais.
+   - Registro: Run/RunOnce/RunServices/Policies (32 e 64 bits), Winlogon Shell/Userinit,
+     Windows\Load, IFEO "Debugger" — de todos os usuários, inclusive perfis não logados
+     e Windows instalado em outro HD (registro offline). Inclui a inicialização do
+     Synaptics falso (o Synaptics Killer não limpa o registro).
+   - Serviços e tarefas agendadas (inclui jobs antigos do comando AT).
+   - autorun.inf perigoso em pendrives.
+   - Varredura profunda: cada .exe/.scr/.com/.pif é lido (2 MB do início + 1 MB do fim) e
+     comparado com as assinaturas das 4 famílias. Arquivos de uma família conhecida são
+     lidos inteiros (até 256 MB) para localizar o programa original.
+   - Políticas que bloqueiam Gerenciador de Tarefas/Regedit/CMD: só aviso (vem desmarcado).
+
+  Desinfecção (programa original recuperado, não precisa reinstalar):
+   - Synaptics V1/V2: o original fica depois do marcador "Drive Watcher" do vírus.
+   - Mofksys / TJprojMain: o original fica depois de um marcador de 8 bytes + 1 byte.
+   - Grenam: o vírus escondeu o original como "g<nome>.exe"; ele volta ao nome certo.
+   O original recuperado só é usado se tiver cabeçalho de executável válido; o tamanho é
+   calculado pelo próprio cabeçalho (mais seguro que a regra "até o último MZ" do Killer).
+   O arquivo infectado SEMPRE vai para a quarentena antes, e "Desfazer limpeza" volta tudo.
+
+  Limpeza:
+   - Congela TODOS os processos do vírus de uma vez e só depois encerra (os componentes
+     se relançam entre si; congelados, não conseguem).
+   - Arquivo travado: pergunta ao Windows (Restart Manager) quem está com ele aberto e
+     encerra esse processo — sem depender do handle.exe. Se ainda assim não der, agenda
+     para apagar no reinício.
+   - Quarentena: arquivos vão para C:\Quarentena_TJprojMain\<data>\arquivos\ como .vir,
+     com SHA256 no manifesto.
+   - Backup .reg de toda chave alterada; cópia do XML de toda tarefa removida.
+   - Vigia por ~8 s contra reinfecção (até 5 rodadas).
+   - Vacina: cria pastas protegidas com os nomes exatos dos arquivos do vírus, para ele
+     não conseguir se recriar (ex.: C:\Windows\Resources\Themes\explorer.exe\ e
+     C:\ProgramData\Synaptics\Synaptics.exe\).
+
+  "Desfazer limpeza" restaura arquivos (inclusive desfaz as desinfecções), registro e
+  tarefas e remove a vacina. "Relatório" gera uma página HTML com tudo o que foi feito.
+
+ORIGEM DAS REGRAS (Synaptics Killer v6, Car-Tech Diagnostic, v1.0.2.4)
+   - Detecção: "Drive Watcher Stop" → Synaptics (V2 se também houver o 2º cabeçalho Delphi);
+     trecho de código + projeto VB6 "trjFN" → Mofksys; manifesto "CodeGear RAD Studio" +
+     trecho de código Delphi → Grenam; worm Grenam = 534.016 bytes.
+   - Falhas do Killer corrigidas aqui: quebra com acesso negado em \Windows\Resources\
+     (pasta VSCache), não limpa registro, só varre a pasta escolhida e só .exe, recorte
+     "até o último MZ" sem validar, apaga desktop.ini das pastas de Inicializar, depende do
+     handle.exe.
+
+LIMITES (honestos)
+   - As regras de recuperação reproduzem o Synaptics Killer e foram testadas com amostras
+     sintéticas montadas a partir delas; ainda não com arquivos infectados de verdade.
+   - Planilhas Excel infectadas pelo Synaptics (.xlsm) ainda não são tratadas.
+   - Programas infectados maiores que 256 MB vão para a quarentena sem recuperar o original.
+   - Depois da limpeza, faça também uma varredura completa com o Windows Defender.
+
+COMPILAR DE NOVO
+   Rode build.bat (gera "DGX Virus Remover.exe"; usa o compilador do .NET 4.8 que já vem no Windows).
+
+PASTAS
+   src\      código-fonte (C# 5, WinForms); src\Families.cs = Synaptics / Mofksys / Grenam
+   assets\   logo: "DGX Virus Remover.ico", logo.svg, icon_128/256/512.png
+   tools\    MakeLogo.cs — regenera o ícone e os PNGs a partir do desenho em src\Controls.cs
+   extras\   Remover_TJprojMain.bat — a versão em .bat que deu origem ao programa
