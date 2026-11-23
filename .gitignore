@@ -4,6 +4,11 @@
 *.pdb
 *.dll
 
+# Pacotes compactados (o .exe sai pela Release, não pelo repositório)
+*.rar
+*.zip
+*.7z
+
 # Saídas de build e temporários
 /bin/
 /obj/
