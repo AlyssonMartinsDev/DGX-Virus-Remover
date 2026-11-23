@@ -293,6 +293,39 @@ namespace TJRemover
             }
         }
 
+        // Resquício "._cache_" do Synaptics: se o programa ao lado já não existe (ou foi para a quarentena
+        // nesta limpeza sem original), a cópia oculta É o original: volta ao nome certo. Senão, quarentena.
+        static bool SamePath(string a, string b)
+        {
+            try { return Eq(Path.GetFullPath(a), Path.GetFullPath(b)); } catch { return Eq(a, b); }
+        }
+
+        string ApplyLeftover(Finding f, HashSet<string> killPaths)
+        {
+            string path = f.FilePath, orig = f.Extra;
+            if (!File.Exists(path)) return "Já não existe";
+            if (!string.IsNullOrEmpty(orig) && !File.Exists(orig))
+            {
+                try
+                {
+                    var r = ScanFile(path);
+                    if (r.IsPE && r.Family == VirusFamily.None && !r.Signature)
+                    {
+                        int attrs = (int)File.GetAttributes(path);
+                        File.SetAttributes(path, FileAttributes.Normal);
+                        File.Move(path, orig);
+                        manifest.WriteLine("REN	" + path + "	" + orig + "	" + attrs);
+                        lock (restored) restored.Add(orig);
+                        killPaths.RemoveWhere(k => SamePath(k, orig));   // agora é o programa limpo: a vigia contra reinfecção não pode levá-lo
+                        Log("Resquício do Synaptics devolvido ao nome original: " + orig, LogLevel.Ok);
+                        return "Restaurado como " + Path.GetFileName(orig);
+                    }
+                }
+                catch (Exception ex) { Log("Não consegui renomear " + path + ": " + ex.Message + " — vai para a quarentena.", LogLevel.Warn); }
+            }
+            return QuarantineFile(path, killPaths);
+        }
+
         // =====================================================================
         // registro / serviços / tarefas
         // =====================================================================
@@ -541,7 +574,7 @@ namespace TJRemover
                 Begin(4);
                 var others = sel.Where(f => f.Kind == FindingKind.Service || f.Kind == FindingKind.Task || f.Kind == FindingKind.Autorun ||
                                             f.Kind == FindingKind.Hosts || f.Kind == FindingKind.HiddenFolder || f.Kind == FindingKind.Warning ||
-                                            f.Kind == FindingKind.SystemIni).ToList();
+                                            f.Kind == FindingKind.SystemIni || f.Kind == FindingKind.Leftover).ToList();
                 n = 0;
                 foreach (var f in others)
                 {
@@ -553,6 +586,7 @@ namespace TJRemover
                     else if (f.Kind == FindingKind.HiddenFolder) Changed(f, ApplyUnhide(f), true);
                     else if (f.Kind == FindingKind.SystemIni) Changed(f, ApplySystemIni(f), true);
                     else if (f.Kind == FindingKind.Warning) Changed(f, "Somente aviso (nada a remover)", true);
+                    else if (f.Kind == FindingKind.Leftover) Changed(f, ApplyLeftover(f, paths), true);
                     else Changed(f, QuarantineFile(f.FilePath, paths), true);
                     Frac(++n / (double)Math.Max(1, others.Count));
                 }
@@ -642,12 +676,13 @@ namespace TJRemover
                     {
                         if (l[0] == "REN")
                         {
-                            // Grenam: o original volta a ser g<nome>.exe (oculto), como estava
+                            // Grenam (g<nome>.exe) e resquício ._cache_ do Synaptics: o arquivo volta ao nome oculto de antes
                             string hidden = l[1], path = l[2];
                             if (File.Exists(path) && !File.Exists(hidden))
                             {
                                 File.Move(path, hidden);
-                                File.SetAttributes(hidden, FileAttributes.Hidden);
+                                int at;
+                                File.SetAttributes(hidden, l.Length > 3 && int.TryParse(l[3], out at) ? (FileAttributes)at : FileAttributes.Hidden);
                                 Log("Original devolvido a " + hidden, LogLevel.Ok);
                             }
                         }

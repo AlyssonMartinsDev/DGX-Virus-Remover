@@ -99,6 +99,13 @@ O QUE ELE FAZ
    - Synaptics V1/V2: o original fica depois do marcador "Drive Watcher" do vírus.
    - Mofksys / TJprojMain: o original fica depois de um marcador de 8 bytes + 1 byte.
    - Grenam: o vírus escondeu o original como "g<nome>.exe"; ele volta ao nome certo.
+   - Resquícios do Synaptics (aparecem como "Resquício"):
+       "._cache_<programa>.exe" — cópia oculta do programa original que o vírus extrai para
+       rodar. Se o programa ao lado existe, a sobra vai para a quarentena; se ele não existe
+       mais (ou era só o vírus e foi para a quarentena na mesma limpeza), a cópia volta ao
+       nome certo, visível — sem reinstalar.
+       "~$cache1" — cópia oculta do vírus junto às planilhas do Excel: quarentena.
+       (Os "~$planilha.xlsx" temporários do Office não são mexidos.)
    O original recuperado só é usado se tiver cabeçalho de executável válido; o tamanho é
    calculado pelo próprio cabeçalho (mais seguro que a regra "até o último MZ" do Killer).
    O arquivo infectado SEMPRE vai para a quarentena antes, e "Desfazer limpeza" volta tudo.

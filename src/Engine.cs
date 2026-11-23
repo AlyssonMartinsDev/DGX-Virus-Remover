@@ -271,6 +271,60 @@ namespace TJRemover
             catch { return null; }
         }
 
+        // Resquícios do Synaptics:
+        //   "._cache_<programa>"  cópia oculta do programa ORIGINAL que o vírus extrai e executa
+        //   "~$cache1"            cópia oculta do próprio vírus deixada junto às planilhas do Excel
+        public static bool IsCacheLeftoverName(string p)
+        {
+            string n = Path.GetFileName(p) ?? "";
+            return n.StartsWith("._cache_", StringComparison.OrdinalIgnoreCase) && n.Length > 8
+                || n.StartsWith("~$cache", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Programa que o "._cache_" representa (mesma pasta, sem o prefixo)
+        public static string CacheOriginalPath(string p)
+        {
+            string n = Path.GetFileName(p) ?? "";
+            if (!n.StartsWith("._cache_", StringComparison.OrdinalIgnoreCase) || n.Length <= 8) return null;
+            return Path.Combine(Path.GetDirectoryName(p) ?? "", n.Substring(8));
+        }
+
+        void ReportLeftover(string path, FileScanResult r)
+        {
+            if (Eq(path, selfPath)) return;
+            string orig = CacheOriginalPath(path);
+            string reason;
+            Severity sev = Severity.Medio;
+            if (orig == null)
+            {
+                // ~$cache1: precisa ser executável para não confundir com arquivo temporário do Office
+                if (!r.IsPE) return;
+                sev = Severity.Alto;
+                reason = "Resquício do Synaptics: cópia oculta do vírus deixada junto às planilhas do Excel (~$cache). Vai para a quarentena.";
+            }
+            else if (File.Exists(orig))
+                reason = "Resquício do Synaptics: cópia oculta do programa original que o vírus extraiu para executar. " +
+                         "O programa \"" + Path.GetFileName(orig) + "\" existe ao lado; esta sobra vai para a quarentena. " +
+                         "(Se na limpeza o programa ao lado for para a quarentena sem original, esta cópia é que volta ao nome certo.)";
+            else
+                reason = "Resquício do Synaptics: cópia oculta do programa original, e o programa \"" + Path.GetFileName(orig) +
+                         "\" não existe mais. Ela volta ao nome certo e fica visível (sem precisar reinstalar).";
+            if (Allowlist.IsPathAllowed(path) || (Allowlist.HasHashes && Allowlist.IsHashAllowed(Sha256(path))))
+            {
+                lock (reportedFiles) if (!reportedFiles.Add(path)) return;
+                Interlocked.Increment(ref ignored);
+                Log("Permitido (ignorado): " + path, LogLevel.Info);
+                return;
+            }
+            lock (reportedFiles) if (!reportedFiles.Add(path)) return;
+            AddFinding(new Finding
+            {
+                Kind = FindingKind.Leftover, Severity = sev, Title = path, FilePath = path,
+                Family = VirusFamily.SynapticsV1, Extra = orig,
+                Detail = BuildFileDetail(path, reason, r)
+            });
+        }
+
         static bool IsSynapticsDropper(string p)
         {
             if (!Eq(Path.GetFileName(p), "Synaptics.exe")) return false;
@@ -1065,7 +1119,7 @@ namespace TJRemover
         List<string> EnumerateTargets(ScanOptions o, CancellationToken ct)
         {
             var roots = new List<string>();
-            if (o.CustomFolder != null) roots.Add(o.CustomFolder);
+            if (o.CustomFolder != null) roots.Add(Path.GetFullPath(o.CustomFolder));
             else if (TestRoot != null) roots.Add(TestRoot);
             else
                 foreach (var d in DriveInfo.GetDrives())
@@ -1100,7 +1154,7 @@ namespace TJRemover
                 try
                 {
                     foreach (var f in Directory.EnumerateFiles(d))
-                        if (IsExec(f))
+                        if (IsExec(f) || IsCacheLeftoverName(f))
                         {
                             list.Add(f);
                             Interlocked.Increment(ref filesTotal);
@@ -1164,6 +1218,8 @@ namespace TJRemover
                         else if (r.Signature)
                             ReportFile(f, FindingKind.MaliciousFile, Severity.Critico,
                                 "Cópia do vírus com outro nome (assinatura encontrada e nenhum programa original embutido).", r);
+                        else if (IsCacheLeftoverName(f))
+                            ReportLeftover(f, r);
                         else if (r.Appender != null)
                             appenders.Add(new KeyValuePair<string, string>(f, r.Appender));
                     }

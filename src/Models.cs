@@ -2,7 +2,7 @@ using System;
 
 namespace TJRemover
 {
-    public enum FindingKind { Process, MaliciousFile, InfectedFile, Registry, Service, Task, Autorun, Policy, Suspicious, HiddenFolder, Hosts, Warning, SystemIni }
+    public enum FindingKind { Process, MaliciousFile, InfectedFile, Registry, Service, Task, Autorun, Policy, Suspicious, HiddenFolder, Hosts, Warning, SystemIni, Leftover }
     public enum Severity { Critico, Alto, Medio, Info }
     public enum RegAction { DeleteValue, SetValue, SetDword }
     public enum LogLevel { Info, Ok, Warn, Error, Title }
@@ -81,6 +81,7 @@ namespace TJRemover
                     case FindingKind.Hosts: return "Arquivo hosts";
                     case FindingKind.Warning: return "Aviso" + fam;
                     case FindingKind.SystemIni: return "system.ini" + fam;
+                    case FindingKind.Leftover: return "Resquício" + fam;
                     default: return "Configuração de segurança";
                 }
             }

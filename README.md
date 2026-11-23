@@ -18,7 +18,7 @@
 
 ## O que ele faz
 
-- **Desinfecta programas** atingidos por **Synaptics** (V1/V2), **Mofksys/TJprojMain** e **Grenam**: o programa original é recuperado de dentro do arquivo infectado e volta ao lugar — sem reinstalar.
+- **Desinfecta programas** atingidos por **Synaptics** (V1/V2), **Mofksys/TJprojMain** e **Grenam**: o programa original é recuperado de dentro do arquivo infectado e volta ao lugar — sem reinstalar. Também limpa os **resquícios** que o Synaptics deixa (`._cache_<programa>.exe` e `~$cache1`), devolvendo o `._cache_` ao nome certo quando ele é a única cópia do programa.
 - **Sality e outros vírus de arquivo** (Virut, Ramnit, Expiro…): triagem pela estrutura do executável, confirmação e desinfecção pelo motor do Windows Defender — sem falso positivo de programas empacotados — e limpeza dos rastros no sistema (`system.ini`, avisos de segurança, UAC, Modo de Segurança).
 - **Remove o vírus do sistema**: processos (congelados antes de encerrar), arquivos, inicialização no registro, Winlogon, IFEO, serviços e tarefas agendadas — inclusive de outros usuários e de Windows instalado em outro HD.
 - **Detecções genéricas**: programas sem assinatura digital iniciando de AppData/Temp, scripts na pasta Inicializar, PowerShell oculto, Defender desligado ou com exceções perigosas, arquivo `hosts` bloqueando antivírus, proxy sequestrado e sinais do ransomware STOP/Djvu.
