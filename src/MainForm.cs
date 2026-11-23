@@ -478,7 +478,12 @@ namespace TJRemover
             btnProtect = MkBtn("Proteção", C.Card, 100, false);
             btnReport.Margin = new Padding(0, 4, 0, 0);
 
-            btnScan.Click += (s, e) => StartScanWith(GetOptions());
+            btnScan.Click += (s, e) =>
+            {
+                // modo "Pasta escolhida" sem pasta ainda (ou pasta que sumiu): pede antes de varrer
+                if (cbMode.SelectedIndex == 3 && (customFolder == null || !Directory.Exists(customFolder))) { PickFolder(true); return; }
+                StartScanWith(GetOptions());
+            };
             btnClean.Click += (s, e) => StartClean();
             btnCancel.Click += (s, e) => { if (cts != null) { cts.Cancel(); btnCancel.Enabled = false; SetStatus("Cancelando…", C.Yellow); } };
             btnUndo.Click += (s, e) => StartUndo();
@@ -519,24 +524,58 @@ namespace TJRemover
             return o;
         }
 
+        bool modeGuard;   // evita reentrada: mexer no ComboBox dentro do próprio evento dispara o evento de novo
+
         void OnModeChanged()
         {
+            if (modeGuard) return;
             int m = cbMode.SelectedIndex;
             if (m == 3)
             {
-                using (var fb = new FolderBrowserDialog { Description = "Escolha a pasta (ou o pendrive) que será verificada:", ShowNewFolderButton = false, SelectedPath = customFolder ?? "" })
-                {
-                    if (fb.ShowDialog(this) != DialogResult.OK) { cbMode.SelectedIndex = lastMode; return; }
-                    customFolder = fb.SelectedPath;
-                }
-                cbMode.Items[3] = "Pasta: " + customFolder;
+                // abre o seletor só depois que a lista do ComboBox fechar
+                BeginInvoke(new Action(() => PickFolder(true)));
+                return;
             }
-            else
+            lastMode = m;
+            Settings.Set("modo", m.ToString());
+            UpdateModeUi();
+        }
+
+        void SetModeSilently(int index, string folderText)
+        {
+            modeGuard = true;
+            try
             {
-                lastMode = m;
-                Settings.Set("modo", m.ToString());
+                if (folderText != null && !Equals(cbMode.Items[3], folderText)) cbMode.Items[3] = folderText;
+                cbMode.SelectedIndex = index;
             }
-            bool sys = m != 3;
+            finally { modeGuard = false; }
+        }
+
+        /// <summary>Escolhe a pasta do modo "Pasta escolhida". Retorna false se o usuário cancelou.</summary>
+        bool PickFolder(bool startScan)
+        {
+            if (busy) { SetModeSilently(lastMode, null); UpdateModeUi(); return false; }
+            string chosen = null;
+            using (var fb = new FolderBrowserDialog { Description = "Escolha a pasta (ou o pendrive) que será verificada:", ShowNewFolderButton = false, SelectedPath = customFolder ?? "" })
+                if (fb.ShowDialog(this) == DialogResult.OK && Directory.Exists(fb.SelectedPath)) chosen = fb.SelectedPath;
+            if (chosen == null)
+            {
+                if (customFolder == null) SetModeSilently(lastMode, null);   // nunca escolheu: volta ao modo anterior
+                UpdateModeUi();
+                return false;
+            }
+            customFolder = chosen;
+            string shown = chosen.Length > 34 ? "…" + chosen.Substring(chosen.Length - 33) : chosen;
+            SetModeSilently(3, "Pasta: " + shown);
+            UpdateModeUi();
+            if (startScan) StartScanWith(GetOptions());
+            return true;
+        }
+
+        void UpdateModeUi()
+        {
+            bool sys = cbMode.SelectedIndex != 3;
             chkPersist.Enabled = sys && !busy;
             chkOffline.Enabled = sys && !busy;
             ShowPlan();
