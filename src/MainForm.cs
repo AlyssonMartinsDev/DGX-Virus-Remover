@@ -101,7 +101,7 @@ namespace TJRemover
             var p = new Panel { Dock = DockStyle.Top, Height = 74, BackColor = C.Panel };
             var logo = new DgxLogo { Location = new Point(18, 11), Size = new Size(52, 52) };
             var t = new Label { Text = Program.AppName, Font = fTitle, ForeColor = C.Text, AutoSize = true, Location = new Point(80, 11) };
-            var st = new Label { Text = Engine.V + " / Mofksys  ·  Synaptics  ·  Grenam  ·  Desinfecção  ·  Quarentena  ·  Vacina", Font = fSmall, ForeColor = C.Dim, AutoSize = true, Location = new Point(83, 44) };
+            var st = new Label { Text = Engine.V + " / Mofksys  ·  Synaptics  ·  Grenam  ·  Sality  ·  Desinfecção  ·  Quarentena  ·  Proteção", Font = fSmall, ForeColor = C.Dim, AutoSize = true, Location = new Point(83, 44) };
             lblStatus = new Label { Dock = DockStyle.Right, Width = 420, TextAlign = ContentAlignment.MiddleRight, Font = new Font("Segoe UI Semibold", 12.5f), Padding = new Padding(0, 0, 24, 0) };
             var line = new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = C.Border };
             p.Controls.Add(lblStatus);
@@ -1085,6 +1085,12 @@ namespace TJRemover
             FitColumns();
             SelectTab(0);
             ApplyUsbWatch();
+            // quarentenas antigas (arquivo só renomeado) passam a ser cifradas, para o antivírus não apagá-las
+            string qb = engine.QuarantineBase;
+            Task.Factory.StartNew(() => Engine.MigrateQuarantine(qb)).ContinueWith(t =>
+            {
+                if (t.Result > 0) { engine.Log(t.Result + " arquivo(s) de quarentenas antigas foram protegidos (cifrados).", LogLevel.Ok); DrainLogs(); }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

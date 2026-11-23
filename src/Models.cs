@@ -2,7 +2,7 @@ using System;
 
 namespace TJRemover
 {
-    public enum FindingKind { Process, MaliciousFile, InfectedFile, Registry, Service, Task, Autorun, Policy, Suspicious, HiddenFolder, Hosts, Warning }
+    public enum FindingKind { Process, MaliciousFile, InfectedFile, Registry, Service, Task, Autorun, Policy, Suspicious, HiddenFolder, Hosts, Warning, SystemIni }
     public enum Severity { Critico, Alto, Medio, Info }
     public enum RegAction { DeleteValue, SetValue, SetDword }
     public enum LogLevel { Info, Ok, Warn, Error, Title }
@@ -56,6 +56,7 @@ namespace TJRemover
         public VirusFamily Family;  // família reconhecida (TJprojMain, Synaptics, Mofksys, Grenam)
         public bool Disinfect;      // o programa original pode ser recuperado
         public string Extra;        // dados extras (ex.: linhas do hosts a remover)
+        public bool DefenderClean;  // desinfecção feita pelo motor do Windows Defender (Sality, Virut, Ramnit…)
 
         public bool Failed { get { return Status != null && Status.StartsWith("Falha"); } }
 
@@ -78,7 +79,8 @@ namespace TJRemover
                     case FindingKind.Suspicious: return "Suspeito";
                     case FindingKind.HiddenFolder: return "Pasta escondida";
                     case FindingKind.Hosts: return "Arquivo hosts";
-                    case FindingKind.Warning: return "Aviso";
+                    case FindingKind.Warning: return "Aviso" + fam;
+                    case FindingKind.SystemIni: return "system.ini" + fam;
                     default: return "Configuração de segurança";
                 }
             }

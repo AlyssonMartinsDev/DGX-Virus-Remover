@@ -5,7 +5,7 @@
 <h1 align="center">DGX Virus Remover</h1>
 
 <p align="center">
-  Remoção e <b>desinfecção</b> de TJprojMain/Mofksys, Synaptics e Grenam — com quarentena, desfazer e proteção do dia a dia.
+  Remoção e <b>desinfecção</b> de TJprojMain/Mofksys, Synaptics, Grenam e Sality — com quarentena, desfazer e proteção do dia a dia.
 </p>
 
 <p align="center">
@@ -19,10 +19,11 @@
 ## O que ele faz
 
 - **Desinfecta programas** atingidos por **Synaptics** (V1/V2), **Mofksys/TJprojMain** e **Grenam**: o programa original é recuperado de dentro do arquivo infectado e volta ao lugar — sem reinstalar.
+- **Sality e outros vírus de arquivo** (Virut, Ramnit, Expiro…): triagem pela estrutura do executável, confirmação e desinfecção pelo motor do Windows Defender — sem falso positivo de programas empacotados — e limpeza dos rastros no sistema (`system.ini`, avisos de segurança, UAC, Modo de Segurança).
 - **Remove o vírus do sistema**: processos (congelados antes de encerrar), arquivos, inicialização no registro, Winlogon, IFEO, serviços e tarefas agendadas — inclusive de outros usuários e de Windows instalado em outro HD.
 - **Detecções genéricas**: programas sem assinatura digital iniciando de AppData/Temp, scripts na pasta Inicializar, PowerShell oculto, Defender desligado ou com exceções perigosas, arquivo `hosts` bloqueando antivírus, proxy sequestrado e sinais do ransomware STOP/Djvu.
 - **Pendrives**: vírus do atalho (atalhos falsos, pastas escondidas, scripts) e vigia automática ao conectar.
-- **Quarentena** com restaurar / excluir definitivamente, **Desfazer limpeza** completo e lista de **Permitidos** para arquivos que você sabe que não são vírus.
+- **Quarentena cifrada** (o antivírus não apaga, então o desfazer sempre funciona) com restaurar / excluir definitivamente, **Desfazer limpeza** completo e lista de **Permitidos** para arquivos que você sabe que não são vírus.
 - **Proteção**: estado do Defender, bloqueio de AutoRun, extensões visíveis e checklist da máquina limpa.
 - Opcional: confirmação dos suspeitos pelo motor do **Windows Defender**.
 
@@ -47,8 +48,8 @@ Gera `DGX Virus Remover.exe` na raiz do projeto.
 O GitHub Actions compila sozinho e anexa o `.exe` na página de Releases quando você envia uma tag:
 
 ```bat
-git tag v2.0.0
-git push origin v2.0.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 O link fixo de download passa a ser `https://github.com/<usuario>/<repositorio>/releases/latest/download/DGX-Virus-Remover.exe`.

@@ -34,6 +34,7 @@ namespace TJRemover
         public bool Infected { get { return IsPE && (EmbeddedPe > 0 || SignatureInTail); } }
         public VirusFamily Family;        // Synaptics / Mofksys / Grenam (assinaturas do Synaptics Killer)
         public DisinfectPlan Plan;        // como recuperar o programa original
+        public string Appender;           // padrão de vírus que se anexa (Sality/Virut) — triagem, confirmada pelo Defender
     }
 
     public partial class Engine
@@ -430,6 +431,7 @@ namespace TJRemover
                             ReadFull(fs, all, (int)len);
                             r.Plan = r.Family != VirusFamily.None ? Families.Plan(path, all) : Families.PlanTJ(all);
                         }
+                        if (r.Family == VirusFamily.None && !r.Signature) r.Appender = Families.AppenderHeuristic(head, hl);
                     }
                 }
             }
@@ -1127,6 +1129,7 @@ namespace TJRemover
             Interlocked.Exchange(ref filesDone, 0);
             if (total == 0) { Frac(1); return; }
             int before = Findings.Count;
+            var appenders = new ConcurrentBag<KeyValuePair<string, string>>();
             var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Math.Min(4, Environment.ProcessorCount)), CancellationToken = ct };
             Parallel.ForEach(files, po, f =>
             {
@@ -1161,12 +1164,16 @@ namespace TJRemover
                         else if (r.Signature)
                             ReportFile(f, FindingKind.MaliciousFile, Severity.Critico,
                                 "Cópia do vírus com outro nome (assinatura encontrada e nenhum programa original embutido).", r);
+                        else if (r.Appender != null)
+                            appenders.Add(new KeyValuePair<string, string>(f, r.Appender));
                     }
                 }
                 catch { }
                 long d = Interlocked.Increment(ref filesDone);
-                if ((d & 7) == 0 || d == total) Frac(d / (double)total);
+                if ((d & 7) == 0 || d == total) Frac(d / (double)total * 0.95);
             });
+            TriageAppenders(appenders.ToList(), ct);
+            Frac(1);
             if (Findings.Count == before) Log("Nenhum executável infectado.", LogLevel.Ok);
         }
     }

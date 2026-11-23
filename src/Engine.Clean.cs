@@ -104,22 +104,100 @@ namespace TJRemover
         // =====================================================================
         // quarentena
         // =====================================================================
+        // ---- quarentena cifrada: o antivírus não apaga a cópia (senão o "Desfazer" quebraria)
+        static readonly byte[] QKey = System.Text.Encoding.ASCII.GetBytes("DGX-Quarentena-v1");
+
+        /// <summary>Copia aplicando XOR (a mesma função cifra e decifra).</summary>
+        public static void XorCopy(string src, string dst)
+        {
+            var buf = new byte[1 << 16];
+            long pos = 0;
+            using (var i = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var o = new FileStream(dst, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                int n;
+                while ((n = i.Read(buf, 0, buf.Length)) > 0)
+                {
+                    for (int k = 0; k < n; k++) buf[k] ^= (byte)(QKey[(pos + k) % QKey.Length] + (byte)((pos + k) >> 8));
+                    o.Write(buf, 0, n);
+                    pos += n;
+                }
+            }
+        }
+
+        /// <summary>Devolve um arquivo da quarentena (cifrado "X" ou antigo, só renomeado).</summary>
+        public static void RestoreFromQuarantine(string vir, string original, bool encrypted, string attrs = null)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(original));
+            if (encrypted) { XorCopy(vir, original); File.Delete(vir); }
+            else File.Move(vir, original);
+            int a;
+            if (attrs != null && int.TryParse(attrs, out a) && a != 0)
+                try { File.SetAttributes(original, (FileAttributes)a); } catch { }   // volta oculto/sistema como estava
+        }
+
+        /// <summary>Converte arquivos de quarentenas antigas (só renomeados) para o formato cifrado.</summary>
+        public static int MigrateQuarantine(string baseDir)
+        {
+            int n = 0;
+            try
+            {
+                if (!Directory.Exists(baseDir)) return 0;
+                foreach (var dir in Directory.GetDirectories(baseDir))
+                {
+                    string mf = Path.Combine(dir, "manifesto.txt");
+                    if (!File.Exists(mf)) continue;
+                    var lines = File.ReadAllLines(mf);
+                    bool changed = false;
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        var p = lines[i].Split('\t');
+                        if (p[0] != "FILE" || p.Length < 3 || (p.Length > 4 && p[4] == "X") || !File.Exists(p[2])) continue;
+                        try
+                        {
+                            string tmp = p[2] + ".x";
+                            if (File.Exists(tmp)) File.Delete(tmp);
+                            XorCopy(p[2], tmp);
+                            File.Delete(p[2]);
+                            File.Move(tmp, p[2]);
+                            lines[i] = "FILE\t" + p[1] + "\t" + p[2] + "\t" + (p.Length > 3 ? p[3] : "") + "\tX";
+                            changed = true; n++;
+                        }
+                        catch { }
+                    }
+                    if (changed) File.WriteAllLines(mf, lines, new UTF8Encoding(false));
+                }
+            }
+            catch { }
+            return n;
+        }
+
+        string NewQuarantinePath(string path)
+        {
+            // nome curto (nº + nome do arquivo); o caminho original fica no manifesto
+            return Path.Combine(session, "arquivos",
+                (Interlocked.Increment(ref quarCounter)).ToString("0000") + "_" + San(Path.GetFileName(path)) + ".vir");
+        }
+
         string QuarantineFile(string path, HashSet<string> killPaths)
         {
             if (!File.Exists(path)) return "Já não existe";
             Exception last = null;
             for (int attempt = 0; attempt < 3; attempt++)
             {
+                string dest = null;
                 try
                 {
+                    var origAttrs = File.GetAttributes(path);
                     File.SetAttributes(path, FileAttributes.Normal);
                     string hash = Sha256(path) ?? "";
-                    // nome curto (nº + nome do arquivo); o caminho original fica no manifesto
-                    string dest = Path.Combine(session, "arquivos",
-                        (Interlocked.Increment(ref quarCounter)).ToString("0000") + "_" + San(Path.GetFileName(path)) + ".vir");
-                    File.Move(path, dest);
+                    dest = NewQuarantinePath(path);
+                    XorCopy(path, dest);
+                    try { File.Delete(path); }
+                    catch { File.Delete(dest); throw; }
+                    if (File.Exists(path)) { File.Delete(dest); throw new IOException("o arquivo continua no lugar"); }
                     lock (quarantined) quarantined.Add(path);
-                    manifest.WriteLine("FILE\t" + path + "\t" + dest + "\t" + hash);
+                    manifest.WriteLine("FILE\t" + path + "\t" + dest + "\t" + hash + "\tX\t" + (int)origAttrs);
                     Log("Quarentena: " + path, LogLevel.Ok);
                     return "Em quarentena";
                 }
@@ -441,7 +519,11 @@ namespace TJRemover
                 {
                     ct.ThrowIfCancellationRequested();
                     CurrentItem = f.FilePath;
-                    Changed(f, f.Kind == FindingKind.InfectedFile && f.Disinfect ? DisinfectFile(f, paths) : QuarantineFile(f.FilePath, paths), true);
+                    string st;
+                    if (f.Kind == FindingKind.InfectedFile && f.DefenderClean) st = DefenderDisinfect(f, paths);
+                    else if (f.Kind == FindingKind.InfectedFile && f.Disinfect) st = DisinfectFile(f, paths);
+                    else st = QuarantineFile(f.FilePath, paths);
+                    Changed(f, st, true);
                     Frac(++n / (double)Math.Max(1, files.Count));
                 }
 
@@ -458,7 +540,8 @@ namespace TJRemover
 
                 Begin(4);
                 var others = sel.Where(f => f.Kind == FindingKind.Service || f.Kind == FindingKind.Task || f.Kind == FindingKind.Autorun ||
-                                            f.Kind == FindingKind.Hosts || f.Kind == FindingKind.HiddenFolder || f.Kind == FindingKind.Warning).ToList();
+                                            f.Kind == FindingKind.Hosts || f.Kind == FindingKind.HiddenFolder || f.Kind == FindingKind.Warning ||
+                                            f.Kind == FindingKind.SystemIni).ToList();
                 n = 0;
                 foreach (var f in others)
                 {
@@ -468,6 +551,7 @@ namespace TJRemover
                     else if (f.Kind == FindingKind.Task) ApplyTask(f, paths);
                     else if (f.Kind == FindingKind.Hosts) Changed(f, ApplyHosts(f), true);
                     else if (f.Kind == FindingKind.HiddenFolder) Changed(f, ApplyUnhide(f), true);
+                    else if (f.Kind == FindingKind.SystemIni) Changed(f, ApplySystemIni(f), true);
                     else if (f.Kind == FindingKind.Warning) Changed(f, "Somente aviso (nada a remover)", true);
                     else Changed(f, QuarantineFile(f.FilePath, paths), true);
                     Frac(++n / (double)Math.Max(1, others.Count));
@@ -609,8 +693,7 @@ namespace TJRemover
                         else if (File.Exists(orig)) Log("Já existe um arquivo em " + orig + " — mantido na quarentena.", LogLevel.Warn);
                         else
                         {
-                            Directory.CreateDirectory(Path.GetDirectoryName(orig));
-                            File.Move(q, orig);
+                            RestoreFromQuarantine(q, orig, l.Length > 4 && l[4] == "X", l.Length > 5 ? l[5] : null);
                             Log("Restaurado: " + orig, LogLevel.Ok);
                         }
                     }

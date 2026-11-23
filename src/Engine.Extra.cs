@@ -314,6 +314,7 @@ namespace TJRemover
                 catch (Exception ex) { Log("Sem acesso a parte das configurações de " + s.Label + ": " + ex.Message, LogLevel.Warn); }
             }
             Frac(0.5);
+            ScanSalityTraces(ct);
 
             // arquivo hosts bloqueando antivírus / Windows Update
             foreach (var r in windowsRoots)
@@ -363,21 +364,91 @@ namespace TJRemover
             if (Findings.Count == before) Log("Configurações de segurança do Windows OK (Defender, hosts, proxy).", LogLevel.Ok);
         }
 
-        void CheckDword(RegSource s, string key, string value, string what, Severity sev, bool sel)
+        Finding CheckDword(RegSource s, string key, string value, string what, Severity sev, bool sel)
         {
             using (var k = OpenKey(s.Root, key, false))
             {
-                if (k == null) return;
+                if (k == null) return null;
                 object v = k.GetValue(value);
                 long num = 0;
                 try { num = Convert.ToInt64(v); } catch { }
-                if (v == null || num == 0) return;
+                if (v == null || num == 0) return null;
                 var f = RegFinding(s, key, value, Convert.ToString(v), RegAction.DeleteValue, null, what, sev);
                 f.Kind = FindingKind.Policy;
                 f.Selected = sel;
-                AddFinding(f);
+                return AddFinding(f) ? f : null;
             }
         }
+
+        // ---------------------------------------------------------------- rastros do Sality no sistema
+        void ScanSalityTraces(CancellationToken ct)
+        {
+            foreach (var s in regSources.Where(x => x.Machine && !x.Wow))
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    // o Sality desliga os avisos da Central de Segurança para o usuário não perceber o antivírus parado
+                    foreach (var key in new[] { s.Prefix + @"\Microsoft\Security Center", s.Prefix + @"\Microsoft\Security Center\Svc" })
+                        foreach (var v in new[] { "AntiVirusDisableNotify", "FirewallDisableNotify", "UacDisableNotify", "UpdatesDisableNotify", "AntiVirusOverride", "FirewallOverride" })
+                        {
+                            var f = CheckDword(s, key, v, "Aviso de segurança do Windows desligado (" + v + ") — técnica do Sality", Severity.Alto, true);
+                            if (f != null) { f.Family = VirusFamily.Sality; ChangedFamily(f); }
+                        }
+                    // UAC desligado (o Sality faz isso; algumas oficinas também desligam de propósito)
+                    string pk = s.Prefix + @"\Microsoft\Windows\CurrentVersion\Policies\System";
+                    using (var k = OpenKey(s.Root, pk, false))
+                        if (k != null)
+                        {
+                            object v = k.GetValue("EnableLUA");
+                            if (v != null && Convert.ToInt64(v) == 0)
+                            {
+                                var f = RegFinding(s, pk, "EnableLUA", "0", RegAction.SetDword, "1", "Controle de Conta de Usuário (UAC) desligado", Severity.Medio);
+                                f.Kind = FindingKind.Policy;
+                                f.Selected = false;
+                                f.Detail += "\r\nO Sality desliga o UAC para agir sem pedir permissão. Se foi você que desligou, deixe desmarcado. Religar exige reiniciar.";
+                                AddFinding(f);
+                            }
+                        }
+                }
+                catch (Exception ex) { Log("Rastros do Sality (" + s.Label + "): " + ex.Message, LogLevel.Warn); }
+            }
+
+            // Modo de Segurança apagado (o Sality remove as chaves SafeBoot para não ser removido em Modo Seguro)
+            if (TestRoot == null)
+                try
+                {
+                    var miss = new[] { "Minimal", "Network" }.Where(n => OpenKey("HKLM", @"SYSTEM\CurrentControlSet\Control\SafeBoot\" + n, false) == null).ToList();
+                    if (miss.Count > 0)
+                        AddFinding(new Finding
+                        {
+                            Kind = FindingKind.Warning, Severity = Severity.Alto, Selected = false, Family = VirusFamily.Sality,
+                            Title = "Modo de Segurança danificado (SafeBoot\\" + string.Join(", ", miss) + " ausente)",
+                            Detail = "As chaves do Modo de Segurança foram apagadas — técnica do Sality para impedir a limpeza em Modo Seguro.\r\n" +
+                                     "Depois da limpeza, restaure o Modo de Segurança (ex.: importando HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot de um Windows da mesma versão) " +
+                                     "e faça uma varredura completa com o Windows Defender."
+                        });
+                }
+                catch { }
+
+            // marca de infecção do Sality no system.ini ([MCIDRV_VER] DEVICEMB=…)
+            foreach (var r in windowsRoots)
+            {
+                string ini = r + @"Windows\system.ini";
+                if (!File.Exists(ini)) continue;
+                string txt;
+                try { txt = File.ReadAllText(ini); } catch { continue; }
+                if (txt.IndexOf("[MCIDRV_VER]", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                AddFinding(new Finding
+                {
+                    Kind = FindingKind.SystemIni, Severity = Severity.Alto, FilePath = ini, Title = ini + " → [MCIDRV_VER]", Family = VirusFamily.Sality,
+                    Detail = "Seção [MCIDRV_VER] no system.ini: marca que o Sality deixa no computador infectado.\r\n" +
+                             "Na limpeza, só essa seção é removida (backup salvo). Faça também uma varredura Completa: o Sality infecta outros programas."
+                });
+            }
+        }
+
+        void ChangedFamily(Finding f) { ChangedFindings.Enqueue(f); }
 
         static string BadExclusion(string type, string name)
         {
@@ -471,8 +542,74 @@ namespace TJRemover
         // =====================================================================
         // confirmação pelo Windows Defender
         // =====================================================================
+        public static string MpCmdOverride;   // testes: simulador do MpCmdRun
+
+        /// <summary>Verifica um arquivo com o Windows Defender. Retorna 2 = ameaça, 0 = limpo, outro = erro.</summary>
+        int DefenderScan(string mp, string path, bool remediate, out string threat)
+        {
+            threat = null;
+            string outp;
+            int rc = RunTool(mp, "-Scan -ScanType 3 -File \"" + path + "\"" + (remediate ? "" : " -DisableRemediation"), out outp);
+            if (rc == 2)
+            {
+                var m = Regex.Match(outp, @"Threat\s*:\s*([^\r\n]+)");
+                threat = m.Success ? m.Groups[1].Value.Trim() : "ameaça";
+            }
+            return rc;
+        }
+
+        /// <summary>
+        /// Arquivos com padrão de vírus anexado (Sality/Virut…): confirmados pelo Defender. Os que ele não reconhece
+        /// são descartados (empacotadores legítimos), para não encher a lista de falsos positivos.
+        /// </summary>
+        void TriageAppenders(List<KeyValuePair<string, string>> hits, CancellationToken ct)
+        {
+            if (hits.Count == 0) return;
+            hits = hits.Where(h => !Allowlist.IsPathAllowed(h.Key)).ToList();
+            string mp = MpCmdRun();
+            int confirmed = 0, discarded = 0, n = 0;
+            Log(hits.Count + " executável(is) com padrão de vírus anexado (Sality/Virut) — confirmando com o Windows Defender…");
+            foreach (var h in hits)
+            {
+                ct.ThrowIfCancellationRequested();
+                CurrentItem = h.Key;
+                if (Native.IsSigned(h.Key)) { discarded++; continue; }
+                if (mp == null || n >= 300)
+                {
+                    ReportSuspicious(h.Key, h.Value, mp == null ? "varredura profunda (Defender indisponível para confirmar)" : "varredura profunda");
+                    continue;
+                }
+                n++;
+                string threat;
+                int rc = DefenderScan(mp, h.Key, false, out threat);
+                if (rc == 2)
+                {
+                    confirmed++;
+                    var fam = Families.FromDefenderName(threat);
+                    lock (reportedFiles) if (!reportedFiles.Add(h.Key)) continue;
+                    lock (flagged) flagged.Add(h.Key);
+                    var r = ScanFile(h.Key);
+                    AddFinding(new Finding
+                    {
+                        Kind = fam != VirusFamily.None ? FindingKind.InfectedFile : FindingKind.MaliciousFile,
+                        Severity = fam != VirusFamily.None ? Severity.Alto : Severity.Critico,
+                        FilePath = h.Key, Title = h.Key, Family = fam, Disinfect = fam != VirusFamily.None, DefenderClean = fam != VirusFamily.None,
+                        Status = "Defender: " + threat,
+                        Detail = BuildFileDetail(h.Key, (fam != VirusFamily.None
+                            ? "Programa infectado por vírus de arquivo (" + threat + "). Na limpeza, o motor do Windows Defender desinfeta o arquivo no lugar; uma cópia de segurança fica na nossa quarentena."
+                            : "Ameaça confirmada pelo Windows Defender: " + threat + ".") + "\r\n" + h.Value, r)
+                    });
+                }
+                else if (rc == 0) discarded++;
+                else ReportSuspicious(h.Key, h.Value + "\r\n(o Defender não respondeu — código " + rc + ")", "varredura profunda");
+            }
+            Log(string.Format("Padrão de vírus anexado: {0} confirmado(s) pelo Defender, {1} descartado(s) (programas legítimos/empacotados).", confirmed, discarded),
+                confirmed > 0 ? LogLevel.Error : LogLevel.Ok);
+        }
+
         static string MpCmdRun()
         {
+            if (MpCmdOverride != null) return MpCmdOverride;
             try
             {
                 string plat = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"Microsoft\Windows Defender\Platform");
@@ -499,13 +636,18 @@ namespace TJRemover
             {
                 ct.ThrowIfCancellationRequested();
                 CurrentItem = f.FilePath;
-                string outp;
-                int rc = RunTool(mp, "-Scan -ScanType 3 -File \"" + f.FilePath + "\" -DisableRemediation", out outp);
+                string name;
+                int rc = DefenderScan(mp, f.FilePath, false, out name);
                 if (rc == 2)
                 {
-                    var m = Regex.Match(outp, @"Threat\s*:\s*([^\r\n]+)");
-                    string name = m.Success ? m.Groups[1].Value.Trim() : "ameaça";
                     hits++;
+                    var fam = Families.FromDefenderName(name);
+                    if (fam != VirusFamily.None)
+                    {
+                        // vírus de arquivo: o próprio Defender desinfeta na limpeza
+                        f.Kind = FindingKind.InfectedFile; f.Family = fam; f.Disinfect = true; f.DefenderClean = true;
+                        f.Detail += "\r\nNa limpeza, o motor do Windows Defender desinfeta o arquivo no lugar (cópia de segurança na nossa quarentena).";
+                    }
                     f.Severity = f.Kind == FindingKind.Suspicious ? Severity.Alto : f.Severity;
                     f.Selected = true;
                     f.Detail += "\r\n\r\n✔ Confirmado pelo Windows Defender: " + name;
@@ -513,7 +655,7 @@ namespace TJRemover
                     Log("Defender confirmou: " + f.FilePath + " → " + name, LogLevel.Error);
                 }
                 else if (rc == 0) Changed(f, f.Kind == FindingKind.Suspicious ? "Defender: nada encontrado" : f.Status, false);
-                else if (n == 0 && rc != 0) Log("Defender respondeu código " + rc + " (pode estar desativado): " + Trunc(outp, 200), LogLevel.Warn);
+                else if (n == 0 && rc != 0) Log("Defender respondeu código " + rc + " (pode estar desativado).", LogLevel.Warn);
                 Frac(++n / (double)list.Count);
             }
             Log(string.Format("Defender verificou {0} arquivo(s): {1} confirmado(s) como ameaça.", list.Count, hits), hits > 0 ? LogLevel.Error : LogLevel.Ok);
@@ -540,6 +682,75 @@ namespace TJRemover
                 return "Corrigido (backup salvo)";
             }
             catch (Exception ex) { return "Falha: " + ex.Message; }
+        }
+
+        string ApplySystemIni(Finding f)
+        {
+            try
+            {
+                string ini = f.FilePath;
+                string backup = Path.Combine(session, "system_ini_backup.txt");
+                File.Copy(ini, backup, true);
+                var outLines = new List<string>();
+                bool skip = false;
+                foreach (var l in File.ReadAllLines(ini))
+                {
+                    string t = l.Trim();
+                    if (t.StartsWith("[")) skip = Eq(t, "[MCIDRV_VER]");
+                    if (!skip) outLines.Add(l);
+                }
+                File.SetAttributes(ini, FileAttributes.Normal);
+                File.WriteAllLines(ini, outLines);
+                manifest.WriteLine("HOSTS\t" + backup + "\t" + ini);   // restauração = copiar o backup de volta
+                Log("system.ini: marca do Sality removida.", LogLevel.Ok);
+                return "Marca removida (backup salvo)";
+            }
+            catch (Exception ex) { return "Falha: " + ex.Message; }
+        }
+
+        /// <summary>
+        /// Vírus de arquivo (Sality, Virut…): cópia de segurança cifrada na nossa quarentena e desinfecção pelo
+        /// motor do Windows Defender, que tem as rotinas de limpeza de cada variante.
+        /// </summary>
+        string DefenderDisinfect(Finding f, HashSet<string> killPaths)
+        {
+            string path = f.FilePath;
+            if (!File.Exists(path)) return "Já não existe";
+            string mp = MpCmdRun();
+            if (mp == null) return QuarantineFile(path, killPaths) + " (Defender indisponível para desinfetar)";
+            string dest;
+            string hash = Sha256(path) ?? "";
+            try
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                dest = NewQuarantinePath(path);
+                XorCopy(path, dest);
+            }
+            catch (Exception ex) { return "Falha ao fazer a cópia de segurança: " + ex.Message; }
+            string threat;
+            int rc = DefenderScan(mp, path, true, out threat);   // com remediação: o Defender limpa ou remove
+            Thread.Sleep(500);
+            if (File.Exists(path))
+            {
+                string again;
+                int rc2 = DefenderScan(mp, path, false, out again);
+                if (rc2 == 0)
+                {
+                    manifest.WriteLine("FILE\t" + path + "\t" + dest + "\t" + hash + "\tX");
+                    manifest.WriteLine("REST\t" + path + "\t" + (Sha256(path) ?? ""));
+                    lock (restored) restored.Add(path);
+                    killPaths.Remove(path);
+                    Log("Desinfetado pelo Windows Defender: " + path, LogLevel.Ok);
+                    return "Desinfetado pelo Windows Defender";
+                }
+                // o Defender não conseguiu limpar: vai para a nossa quarentena
+                try { File.Delete(dest); } catch { }
+                return QuarantineFile(path, killPaths) + " (o Defender não conseguiu desinfetar — reinstale o programa)";
+            }
+            manifest.WriteLine("FILE\t" + path + "\t" + dest + "\t" + hash + "\tX");
+            lock (quarantined) quarantined.Add(path);
+            Log("O Defender removeu " + path + " (não dava para desinfetar). Cópia de segurança na quarentena.", LogLevel.Warn);
+            return "Removido pelo Defender — reinstale o programa";
         }
 
         string ApplyUnhide(Finding f)

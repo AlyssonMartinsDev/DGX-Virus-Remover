@@ -1,10 +1,11 @@
-DGX VIRUS REMOVER  (Windows 7/8/10/11, .NET Framework 4.8 — já vem no Windows)
+DGX VIRUS REMOVER 1.0.0  (Windows 7/8/10/11, .NET Framework 4.8 — já vem no Windows)
 =================================================================================
 
 FAMÍLIAS TRATADAS
    - TJprojMain / Mofksys (Worm:Win32/Mofksys)
    - Synaptics V1 e V2 (falso "Synaptics Pointing Device Driver")
    - Grenam (Worm:Win32/Grenam)
+   - Sality e outros vírus de arquivo (Virut, Ramnit, Expiro, Neshta…) — ver "SALITY" abaixo
    As assinaturas de Synaptics, Mofksys e Grenam vieram da engenharia reversa do
    "Synaptics Killer v6" (Car-Tech Diagnostic). Ver "ORIGEM DAS REGRAS" abaixo.
 
@@ -35,6 +36,22 @@ DETECÇÕES GENÉRICAS (pegam vírus sem assinatura conhecida)
      escondidos) — os atalhos vão para a quarentena e as pastas escondidas voltam a aparecer.
    - Bilhete do ransomware STOP/Djvu (_readme.txt): aviso com orientação.
 
+SALITY E OUTROS VÍRUS DE ARQUIVO
+   O Sality é polimórfico (cada infecção é cifrada de um jeito), então o programa NÃO tenta
+   adivinhar a desinfecção:
+   - Triagem: executáveis com o ponto de entrada na última seção, gravável e executável
+     (padrão de quem se anexa ao programa). Empacotadores conhecidos são ignorados.
+   - Confirmação: cada suspeito é verificado pelo motor do Windows Defender. O que ele não
+     reconhece é DESCARTADO (programas legítimos empacotados não aparecem na lista).
+   - Desinfecção: feita pelo motor do Defender, que tem a rotina de cada variante (foi assim
+     que o "XENTRY Patcher Keygen.exe" do D: foi limpo). Antes, uma cópia de segurança vai para
+     a nossa quarentena; se o Defender só conseguir apagar, o programa precisa ser reinstalado.
+   - Rastros no sistema: marca [MCIDRV_VER] no system.ini (removida com backup), avisos da
+     Central de Segurança desligados (religados), UAC desligado (aviso, desmarcado) e Modo de
+     Segurança apagado (aviso).
+   Requer o Windows Defender disponível (MpCmdRun). Sem ele, os suspeitos aparecem como
+   "Suspeito" (desmarcados) para você decidir.
+
 PERMITIDOS (botão "Permitidos" ou botão direito num item)
    Arquivo, pasta inteira, conteúdo (SHA256) ou entrada de registro que você sabe que não é
    vírus. Ficam em %ProgramData%\DGX Virus Remover\permitidos.txt e são ignorados em todas
@@ -43,6 +60,9 @@ PERMITIDOS (botão "Permitidos" ou botão direito num item)
 QUARENTENA (botão "Quarentena")
    Lista tudo o que foi removido, de todas as limpezas: Restaurar, Restaurar e permitir,
    Excluir definitivamente e Esvaziar o que tiver mais de 30 dias.
+   Os arquivos ficam CIFRADOS (.vir): inofensivos e sem que o antivírus os apague — assim o
+   "Desfazer" sempre funciona. Quarentenas antigas (de antes da 1.0) são cifradas
+   automaticamente ao abrir o programa; as que o antivírus já tinha bloqueado não voltam.
 
 PROTEÇÃO (botão "Proteção")
    - Estado do Windows Defender e atualização das assinaturas.

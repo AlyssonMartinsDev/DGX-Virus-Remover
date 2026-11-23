@@ -4,7 +4,7 @@ using System.Text;
 
 namespace TJRemover
 {
-    public enum VirusFamily { None, TJ, SynapticsV1, SynapticsV2, Mofksys, Grenam }
+    public enum VirusFamily { None, TJ, SynapticsV1, SynapticsV2, Mofksys, Grenam, Sality, FileInfector }
 
     /// <summary>O que fazer com um executável de uma família conhecida.</summary>
     public class DisinfectPlan
@@ -57,8 +57,63 @@ namespace TJRemover
                 case VirusFamily.SynapticsV2: return "Synaptics V2";
                 case VirusFamily.Mofksys: return "Mofksys";
                 case VirusFamily.Grenam: return "Grenam";
+                case VirusFamily.Sality: return "Sality";
+                case VirusFamily.FileInfector: return "Vírus de arquivo";
                 default: return "";
             }
+        }
+
+        // Seções de empacotadores/protetores legítimos que também têm o ponto de entrada numa seção gravável no fim
+        static readonly string[] PackerSections = { "upx", ".aspack", ".adata", "aspack", ".petite", ".mpress", "mpress", ".enigma", ".vmp", ".themida", ".winlice", ".packed",
+            "pec", ".pec", ".nsp", "nsp", ".boom", ".perplex", ".yp", ".rlpack", ".mew", "mew", ".ccg", ".spack", ".svkp", ".taz", ".tsuarch", ".wwpack", "kkrunchy", ".neolit", ".exe32" };
+
+        /// <summary>
+        /// Padrão de vírus que se ANEXA ao programa (Sality, Virut, Expiro, Parite…): o ponto de entrada fica na
+        /// última seção, que é gravável e executável. Só serve de triagem — a confirmação é feita pelo Defender.
+        /// </summary>
+        public static string AppenderHeuristic(byte[] d, int len)
+        {
+            try
+            {
+                if (len < 0x400 || !IsPE(d, 0)) return null;
+                int pe = BitConverter.ToInt32(d, 0x3C);
+                int nsec = BitConverter.ToUInt16(d, pe + 6), osz = BitConverter.ToUInt16(d, pe + 20);
+                ushort chars = BitConverter.ToUInt16(d, pe + 22);
+                if ((chars & 0x2000) != 0 || nsec < 2 || nsec > 40) return null;     // DLL ou estrutura estranha
+                int opt = pe + 24;
+                uint ep = BitConverter.ToUInt32(d, opt + 16);
+                int tab = opt + osz;
+                if (tab + nsec * 40 > len) return null;
+                int last = -1, epSec = -1;
+                for (int i = 0; i < nsec; i++)
+                {
+                    int so = tab + i * 40;
+                    uint vs = BitConverter.ToUInt32(d, so + 8), va = BitConverter.ToUInt32(d, so + 12), rs = BitConverter.ToUInt32(d, so + 16);
+                    if (rs > 0) last = i;
+                    if (ep >= va && ep < va + Math.Max(vs, rs)) epSec = i;
+                }
+                if (epSec < 0 || epSec != last || epSec == 0) return null;
+                int s = tab + epSec * 40;
+                uint ch = BitConverter.ToUInt32(d, s + 36);
+                if ((ch & 0x20000000) == 0 || (ch & 0x80000000) == 0) return null;   // precisa ser executável E gravável
+                string name = Encoding.ASCII.GetString(d, s, 8).TrimEnd('\0').ToLowerInvariant();
+                foreach (var p in PackerSections) if (name.StartsWith(p)) return null;
+                if (name == ".rsrc" || name == ".reloc" || name == ".data" || name.Length == 0 || name == ".text" && nsec <= 3)
+                    return "Ponto de entrada na última seção (\"" + name + "\"), gravável e executável — padrão de vírus que se anexa ao programa (Sality, Virut, Expiro).";
+                return "Ponto de entrada na última seção (\"" + name + "\"), gravável e executável — padrão de vírus que se anexa ao programa (Sality, Virut, Expiro) ou de empacotador desconhecido.";
+            }
+            catch { return null; }
+        }
+
+        static readonly System.Text.RegularExpressions.Regex RxInfectorThreat = new System.Text.RegularExpressions.Regex(
+            @"^Virus:(Win32|Win64)/(Sality|Virut|Ramnit|Expiro|Neshta|Parite|Jadtre|Xpaj|Mabezat|Floxif|Nabucur|Elkern|Polip|Viking|Madang|Induc|Pioneer|Shodi|Zusy|Lamer|Chir|Patchload)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>Família a partir do nome que o Defender deu (vírus que infectam outros programas).</summary>
+        public static VirusFamily FromDefenderName(string threat)
+        {
+            if (string.IsNullOrEmpty(threat) || !RxInfectorThreat.IsMatch(threat)) return VirusFamily.None;
+            return threat.IndexOf("Sality", StringComparison.OrdinalIgnoreCase) >= 0 ? VirusFamily.Sality : VirusFamily.FileInfector;
         }
 
         public static string Short(VirusFamily f)

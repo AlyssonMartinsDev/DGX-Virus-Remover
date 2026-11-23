@@ -87,6 +87,8 @@ namespace TJRemover
     {
         public string Session, Manifest, Original, Vir, Hash;
         public bool Restored;   // desinfetado: o original limpo já voltou ao lugar
+        public bool Encrypted;  // cópia cifrada (formato novo)
+        public string Attrs;    // atributos originais (oculto/sistema)
         public long Size;
         public DateTime When;
     }
@@ -133,7 +135,7 @@ namespace TJRemover
                     var p = l.Split('\t');
                     if (p.Length < 3 || !File.Exists(p[2])) continue;
                     long size = 0; try { size = new FileInfo(p[2]).Length; } catch { }
-                    res.Add(new QItem { Session = dir, Manifest = mf, Original = p[1], Vir = p[2], Hash = p.Length > 3 ? p[3] : "", Restored = rest.Contains(p[1]), Size = size, When = when });
+                    res.Add(new QItem { Session = dir, Manifest = mf, Original = p[1], Vir = p[2], Hash = p.Length > 3 ? p[3] : "", Restored = rest.Contains(p[1]), Size = size, When = when, Encrypted = p.Length > 4 && p[4] == "X", Attrs = p.Length > 5 ? p[5] : null });
                 }
             }
             return res.OrderByDescending(q => q.When).ToList();
@@ -175,8 +177,7 @@ namespace TJRemover
                 try
                 {
                     if (File.Exists(q.Original)) { sb.AppendLine("Já existe arquivo em " + q.Original + (q.Restored ? " (é o programa desinfetado — use \"Desfazer limpeza\" para trocar)" : "")); continue; }
-                    Directory.CreateDirectory(Path.GetDirectoryName(q.Original));
-                    File.Move(q.Vir, q.Original);
+                    Engine.RestoreFromQuarantine(q.Vir, q.Original, q.Encrypted, q.Attrs);
                     Mark(q, "RESTORED");
                     if (allow)
                     {

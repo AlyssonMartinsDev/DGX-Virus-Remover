@@ -26,6 +26,18 @@ jobs:
         shell: cmd
         run: build.bat ci
 
+      - name: Conferir que o .exe não detecta a si mesmo
+        shell: pwsh
+        run: |
+          # nenhuma assinatura de vírus pode aparecer em texto puro dentro do executável
+          $b = [IO.File]::ReadAllBytes("DGX Virus Remover.exe")
+          $ascii = [Text.Encoding]::GetEncoding(28591).GetString($b)
+          $utf16 = [Text.Encoding]::Unicode.GetString($b) + [Text.Encoding]::Unicode.GetString($b, 1, $b.Length - 1)
+          $sigs = @(-join [char[]](84,74,112,114,111,106,77,97,105,110), 'Drive Watcher Stop', 'CodeGear RAD Studio', 'EXERESX', 'EXEVSNX', 'trjFN')
+          $bad = $sigs | Where-Object { $ascii.Contains($_) -or $utf16.Contains($_) }
+          if ($bad) { Write-Error ("Assinatura em texto puro no .exe: " + ($bad -join ', ')); exit 1 }
+          Write-Host "OK: nenhuma assinatura em texto puro."
+
       - name: Preparar arquivos de download
         shell: pwsh
         run: |
